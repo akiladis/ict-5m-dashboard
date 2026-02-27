@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b1220">
+<title>ICT 5M Trading Dashboard - v6</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{font-family:'Inter',sans-serif;margin:0;background:#0b1220;color:#f1f5f9}
+header{padding:20px;text-align:center;background:linear-gradient(90deg,#0f172a,#1e293b);border-bottom:1px solid #1f2937}
+h1{margin:0;font-size:22px}
+#clock{font-size:18px;font-weight:600;margin-top:8px}
+.permission-box{text-align:center;font-weight:600;font-size:15px;margin-top:10px}
+.permission-allow{color:#22c55e}
+.permission-wait{color:#facc15}
+.permission-block{color:#ef4444}
+.dashboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;padding:25px;max-width:1400px;margin:auto}
+.card{background:#111827;padding:20px;border-radius:16px;border:1px solid #1f2937}
+.card.active{border:2px solid #22c55e;box-shadow:0 0 20px rgba(34,197,94,.4)}
+.card.blink{animation:pulse 1s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 #22c55e}50%{box-shadow:0 0 25px #22c55e}100%{box-shadow:0 0 0 #22c55e}}
+.phase-line{padding:10px;border-radius:10px;margin-bottom:10px}
+.phase-active-manip{background:#78350f}
+.phase-active-prime{background:#065f46}
+.phase-active-secondary{background:#1e3a8a}
+.countdown{margin-top:8px;font-size:14px;color:#94a3b8}
+.checklist-box{font-size:14px;line-height:1.6}
+.checklist-box label{display:block;margin-bottom:6px}
+.checklist-box input{margin-right:8px}
+.reset-btn{margin-top:10px;padding:6px 10px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer}
+footer{text-align:center;padding:15px;background:#020617;font-size:13px;color:#94a3b8}
+</style>
+</head>
+<body>
+<header>
+<h1>📊 ICT 5M Trading Dashboard (Finland 🇫🇮)</h1>
+<div id="clock">Loading...</div>
+<div id="tradePermission" class="permission-box permission-block">🔴 No Trade – Wait for Prime</div>
+</header>
+<div class="dashboard">
+<div class="card" id="londonCard">
+<h3>🌍 London (10:00–11:30)</h3>
+<div>GBP/USD • EUR/USD</div>
+<div id="londonStatus"></div>
+<div class="countdown" id="londonCountdown"></div>
+</div>
+<div class="card" id="nyCard">
+<h3>🇺🇸 New York (15:30–17:00)</h3>
+<div>USD/JPY • XAU/USD</div>
+<div id="nyStatus"></div>
+<div class="countdown" id="nyCountdown"></div>
+</div>
+<div class="card">
+<h3>🧠 + ⚡ Trade Confirmation Checklist</h3>
+<div class="checklist-box">
+<strong>📈 HTF Bias</strong>
+<label><input type="checkbox" class="trade-check" data-id="htf1"> Structure aligned</label>
+<label><input type="checkbox" class="trade-check" data-id="htf2"> Premium / Discount confirmed</label>
+<label><input type="checkbox" class="trade-check" data-id="htf3"> Targeting HTF liquidity</label>
+<label><input type="checkbox" class="trade-check" data-id="htf4"> Clear objective</label>
+<br>
+<strong>⚡ 5M Entry</strong>
+<label><input type="checkbox" class="trade-check" data-id="m51"> Liquidity sweep</label>
+<label><input type="checkbox" class="trade-check" data-id="m52"> MSS formed</label>
+<label><input type="checkbox" class="trade-check" data-id="m53"> Displacement</label>
+<label><input type="checkbox" class="trade-check" data-id="m54"> FVG entry</label>
+<label><input type="checkbox" class="trade-check" data-id="m55"> RR ≥ 1:2</label>
+<label><input type="checkbox" class="trade-check" data-id="m56"> Inside Prime window</label>
+<button class="reset-btn" onclick="resetChecklist()">🔄 Daily Reset</button>
+</div>
+</div>
+</div>
+<footer>Blink only during PRIME • Highlights tradable session • Live Finland Time</footer>
+<script>
+let currentPrimeActive=false
+console.log('[INIT] Dashboard script loaded')
+
+const helsinkiFormatter=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Helsinki',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
+
+function getHelsinkiParts(){
+console.log('[TIME] Getting Helsinki time parts')
+const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Helsinki',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date())
+const hour=parseInt(parts.find(p=>p.type==='hour').value,10)
+const minute=parseInt(parts.find(p=>p.type==='minute').value,10)
+console.log('[TIME] Hour:',hour,'Minute:',minute)
+return{hour,minute}
+}
+
+function updateClock(){
+const formatted='🇫🇮 '+helsinkiFormatter.format(new Date())
+console.log('[CLOCK] Updating clock:',formatted)
+document.getElementById('clock').innerText=formatted
+}
+
+function formatTime(min){const h=Math.floor(min/60).toString().padStart(2,'0');const m=(min%60).toString().padStart(2,'0');return h+':'+m}
+function clamp(n){return n<0?0:n}
+
+function handleSession(prefix,minutes,start,manipEnd,primeEnd,end){
+console.log(`[SESSION] Handling ${prefix} | Minutes: ${minutes}`)
+const card=document.getElementById(prefix+'Card')
+const status=document.getElementById(prefix+'Status')
+const countdown=document.getElementById(prefix+'Countdown')
+card.classList.remove('active','blink')
+let phase='inactive'
+
+if(minutes>=start&&minutes<end){
+card.classList.add('active')
+if(minutes<manipEnd)phase='manip'
+else if(minutes<primeEnd)phase='prime'
+else phase='secondary'
+}
+
+console.log(`[SESSION] ${prefix} phase: ${phase}`)
+
+if(phase==='prime'){card.classList.add('blink');currentPrimeActive=true}
+
+status.innerHTML=`
+<div class="phase-line ${phase==='manip'?'phase-active-manip':''}">
+🚦 Manipulation (${formatTime(start)}–${formatTime(manipEnd)})<br>
+<small>• Mark session highs/lows<br>• Wait for liquidity sweep<br>• Expect fake breakout<br>• NO entries</small>
+</div>
+<div class="phase-line ${phase==='prime'?'phase-active-prime':''}">
+🔥 Prime (${formatTime(manipEnd)}–${formatTime(primeEnd)})<br>
+<small>• Confirm 5M MSS<br>• Strong displacement candle<br>• Enter on FVG retrace<br>• Target 15–20 pips</small>
+</div>
+<div class="phase-line ${phase==='secondary'?'phase-active-secondary':''}">
+⚠ Secondary (${formatTime(primeEnd)}–${formatTime(end)})<br>
+<small>• Continuation setups only<br>• Manage open trades<br>• Avoid aggressive new entries</small>
+</div>`
+
+if(phase==='manip')countdown.innerText='Prime in '+clamp(manipEnd-minutes)+' min'
+else if(phase==='prime')countdown.innerText='Prime Active'
+else if(phase==='secondary')countdown.innerText='Session ends in '+clamp(end-minutes)+' min'
+else{
+let diff=start-minutes
+if(diff<0)diff=1440-minutes+start
+countdown.innerText='Starts in '+diff+' min'
+}
+}
+
+function updatePermission(){
+const permissionBox=document.getElementById('tradePermission')
+const checklistComplete=[...document.querySelectorAll('.trade-check')].every(cb=>cb.checked)
+console.log('[PERMISSION] PrimeActive:',currentPrimeActive,'ChecklistComplete:',checklistComplete)
+
+if(currentPrimeActive&&checklistComplete){permissionBox.className='permission-box permission-allow';permissionBox.innerText='🟢 Trade Allowed'}
+else if(currentPrimeActive){permissionBox.className='permission-box permission-wait';permissionBox.innerText='🟡 Prime Active – Complete Checklist'}
+else{permissionBox.className='permission-box permission-block';permissionBox.innerText='🔴 No Trade – Wait for Prime'}
+}
+
+function updateSessions(){
+console.log('[UPDATE] Running session update')
+currentPrimeActive=false
+const {hour,minute}=getHelsinkiParts()
+const minutes=hour*60+minute
+console.log('[UPDATE] Total minutes:',minutes)
+handleSession('london',minutes,600,615,645,690)
+handleSession('ny',minutes,930,945,990,1020)
+updatePermission()
+}
+
+function resetChecklist(){
+console.log('[CHECKLIST] Resetting checklist')
+document.querySelectorAll('.trade-check').forEach(cb=>{cb.checked=false;localStorage.removeItem(cb.dataset.id)})
+updatePermission()
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+console.log('[DOM] Content loaded')
+updateClock();updateSessions();
+setInterval(updateClock,1000);
+setInterval(updateSessions,1000);
+
+document.querySelectorAll('.trade-check').forEach(cb=>{
+const saved=localStorage.getItem(cb.dataset.id)
+if(saved==='true'){cb.checked=true;console.log('[CHECKLIST] Restored:',cb.dataset.id)}
+cb.addEventListener('change',()=>{
+console.log('[CHECKLIST] Changed:',cb.dataset.id,'Checked:',cb.checked)
+localStorage.setItem(cb.dataset.id,cb.checked)
+updatePermission()
+})
+})
+})
+</script>
+</body>
+</html>
